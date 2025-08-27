@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cstdio>
 
 #include <sys/inotify.h> 
 #include <unistd.h> 
@@ -40,7 +41,7 @@ using namespace std;
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-enum OutputType { OUTPUT_FILE, OUTPUT_DIRECTORY, OUTPUT_STDOUT, OUTPUT_RAW };
+enum OutputType { OUTPUT_FILE, OUTPUT_DIRECTORY, OUTPUT_STDOUT, OUTPUT_RAW, OUTPUT_PLAY };
 
 struct RunConfig {
   // Path to .onnx voice file
@@ -231,6 +232,37 @@ static void watchDir(const fs::path &dir, const std::function<void(const std::st
   close(fd);
 }
 
+static void playTextNow(piper::PiperConfig& cfg, piper::Voice& voice, const std::string& text) {
+  const int rate = voice.synthesisConfig.sampleRate;   // ex: 22050
+  const int ch   = voice.synthesisConfig.channels;     // ex: 1
+  std::string cmd = "aplay -q -f S16_LE -c " + std::to_string(ch) +
+                    " -r " + std::to_string(rate) + " -";
+
+  FILE* pipe = popen(cmd.c_str(), "w");
+  if (!pipe) { spdlog::error("popen aplay failed"); return; }
+
+  std::vector<int16_t> chunk;                 // buffer utilisé par textToAudio
+  piper::SynthesisResult res{};
+
+  // Le callback est appelé à chaque chunk : on COPIE le buffer (sinon il est vidé ensuite)
+  auto onChunk = [&]() {
+    if (!chunk.empty()) {
+      // écrire le PCM en S16_LE vers aplay
+      size_t n = fwrite(chunk.data(), sizeof(int16_t), chunk.size(), pipe);
+      (void)n;
+      // pas besoin de flush à chaque fois, aplay tamponne bien; si tu veux: fflush(pipe);
+    }
+  };
+
+  // Stream la synthèse
+  piper::textToAudio(cfg, voice, text, chunk, res, onChunk);
+
+  fflush(pipe);
+  pclose(pipe);
+
+  spdlog::info("RTF={} (infer={}s, audio={}s)", res.realTimeFactor, res.inferSeconds, res.audioSeconds);
+}
+
 // ----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
@@ -269,7 +301,6 @@ int main(int argc, char *argv[]) {
 #endif
 
 
-  // eSpeak activé par défaut (FR/NL en ont besoin), avec fallback de chemin
   piperConfig.useESpeak = true;
   if (runConfig.eSpeakDataPath) {
     piperConfig.eSpeakDataPath = runConfig.eSpeakDataPath->string();
@@ -312,8 +343,15 @@ int main(int argc, char *argv[]) {
   piper::SynthesisResult result;
   watchDir(watchPath, [&](const std::string &voiceKey, const std::string &text){
     piper::Voice& sel = getOrLoadVoice(voiceKey, piperConfig, voices, runConfig);
+
     
-    // Par défaut: OUTPUT_DIRECTORY -> fichier auto-nommé
+    if (runConfig.outputType == OUTPUT_PLAY) {      // <-- Play immediately
+      spdlog::info("Playing text now (voice={})", voiceKey);
+      playTextNow(piperConfig, sel, text);
+      return;
+    }
+    
+    // Synthesize to WAV file
     const auto ts = now_ts_ns();
     filesystem::path outputPath = outDir / (voiceKey + "_" + ts + ".wav");
     ofstream audioFile(outputPath.string(), ios::binary);
@@ -444,6 +482,8 @@ void parseArgs(int argc, char *argv[], RunConfig &runConfig) {
       runConfig.outputPath = filesystem::path(argv[++i]);
     } else if (arg == "--output_raw" || arg == "--output-raw") {
       runConfig.outputType = OUTPUT_RAW;
+    } else if (arg == "--output_raw" || arg == "--play") {
+      runConfig.outputType = OUTPUT_PLAY;
     } else if (arg == "-s" || arg == "--speaker") {
       ensureArg(argc, argv, i);
       runConfig.speakerId = (piper::SpeakerId)stol(argv[++i]);
