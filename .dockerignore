@@ -2,3 +2,4 @@
 !VERSION
 !src/cpp/
 !CMakeLists.txt
+!voices/

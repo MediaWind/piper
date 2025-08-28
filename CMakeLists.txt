@@ -6,6 +6,7 @@ file(READ "${CMAKE_CURRENT_LIST_DIR}/VERSION" piper_version)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(VOICES_DIR "${CMAKE_SOURCE_DIR}/voices" CACHE PATH "Directory with .onnx and .onnx.json voices")
 
 if(MSVC)
   # Force compiler to use UTF-8 for IPA constants
@@ -22,6 +23,15 @@ add_executable(test_piper src/cpp/test.cpp src/cpp/piper.cpp)
 
 # NOTE: external project prefix are shortened because of path length restrictions on Windows
 # NOTE: onnxruntime is pulled from piper-phonemize
+
+# ---- Voices ---
+if(EXISTS "${VOICES_DIR}")
+  add_custom_command(TARGET piper POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${VOICES_DIR}"
+            "$<TARGET_FILE_DIR:piper>/voices"
+  )
+endif()
 
 # ---- fmt ---
 
@@ -169,4 +179,11 @@ install(
 install(
   FILES ${PIPER_PHONEMIZE_DIR}/share/libtashkeel_model.ort
   DESTINATION ${CMAKE_INSTALL_PREFIX}
+)
+
+install(
+  DIRECTORY "${VOICES_DIR}/"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/voices"
+  FILES_MATCHING
+  PATTERN "*.onnx" PATTERN "*.json"
 )
