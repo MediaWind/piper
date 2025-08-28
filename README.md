@@ -44,21 +44,7 @@ Pour transformer du texte en voix, il faut créer un fichier JSON dans le dossie
 
 Pour ajouter une voix :
 
-1. Déposer les fichiers du modèle (`.onnx`) et de configuration (`.json`) dans le dossier **`voices/`**.
-2. Ajouter une entrée dans le dictionnaire `VOICES_TABLE` de `main.cpp` :
-
-```cpp
-static const std::vector<VoiceEntry> VOICES_TABLE = {
-    {"fr", "./voices/fr_siwis.onnx", "./voices/fr_siwis.onnx.json"},
-    {"nl", "./voices/nl_nathalie.onnx", "./voices/nl_nathalie.onnx.json"},
-};
-```
-
-Chaque entrée contient :
-
-* Le **code de langue** (ex. `"fr"`, `"nl"`)
-* Le chemin vers le fichier **`.onnx`**
-* Le chemin vers le fichier **`.json`** associé
+1. Déposer les fichiers du modèle (`.onnx`) et de configuration (`.onnx.json`) dans le dossier **`voices/`**.
 
 ---
 

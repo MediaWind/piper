@@ -106,15 +106,6 @@ struct VoiceEntry {
   fs::path json;
 };
 
-static const std::vector<VoiceEntry> VOICES_TABLE = {
-  {"fr", "./voices/fr_siwis.onnx", "./voices/fr_siwis.onnx.json"},
-  {"nl", "./voices/nl_nathalie.onnx", "./voices/nl_nathalie.onnx.json"},
-};
-
-static const VoiceEntry* findVoiceEntry(const std::string& key) {
-  for (const auto& ve : VOICES_TABLE) if (ve.key == key) return &ve;
-  return nullptr;
-}
 
 static bool parseJobJson(const fs::path &file, std::string &outVoice, std::string &outText) {
   try {
@@ -161,24 +152,22 @@ static piper::Voice& getOrLoadVoice(const std::string& key,
     return it->second;
   }
 
-  // 2) Known in the table?
-  const VoiceEntry* ve = findVoiceEntry(key);
-  if (!ve) {
-    spdlog::error("Unknown voice key: {}", key);
-    throw std::runtime_error("Unknown voice key: " + key);
-  }
-  if (!fs::exists(ve->onnx) || !fs::exists(ve->json)) {
-    spdlog::error("Missing files for [{}]: {} / {}", key, ve->onnx.string(), ve->json.string());
+  // 2) Build paths directly from key
+  fs::path onnxPath = key + ".onnx";
+  fs::path jsonPath = key + ".onnx.json";
+
+  if (!fs::exists(onnxPath) || !fs::exists(jsonPath)) {
+    spdlog::error("Missing files for [{}]: {} / {}", key, onnxPath.string(), jsonPath.string());
     throw std::runtime_error("Voice files missing for: " + key);
   }
 
   // 3) Load
-  spdlog::info("Loading [{}]: {} (config={})", key, ve->onnx.string(), ve->json.string());
+  spdlog::info("Loading [{}]: {} (config={})", key, onnxPath.string(), jsonPath.string());
   auto t0 = std::chrono::steady_clock::now();
 
   piper::Voice v;
   auto sid = runConfig.speakerId;
-  loadVoice(cfg, ve->onnx.string(), ve->json.string(), v, sid, runConfig.useCuda);
+  loadVoice(cfg, onnxPath.string(), jsonPath.string(), v, sid, runConfig.useCuda);
 
   auto t1 = std::chrono::steady_clock::now();
   double elapsed = std::chrono::duration<double>(t1 - t0).count();
@@ -186,10 +175,10 @@ static piper::Voice& getOrLoadVoice(const std::string& key,
   applyOverridesToVoice(v, runConfig);
   spdlog::info("Voice [{}] loaded in {:.3f} seconds", key, elapsed);
 
-    // 4) Insert & return
-    auto [it2, inserted] = voices.emplace(key, std::move(v));
-    return it2->second;
-  }
+  // 4) Insert & return
+  auto [it2, inserted] = voices.emplace(key, std::move(v));
+  return it2->second;
+}
 
 // Watcher: call onJob(voice, text) when a new job is added
 static void watchDir(const fs::path &dir, const std::function<void(const std::string&, const std::string&)> &onJob)
