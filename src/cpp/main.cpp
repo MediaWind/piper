@@ -107,8 +107,8 @@ struct VoiceEntry {
 };
 
 static const std::vector<VoiceEntry> VOICES_TABLE = {
-  {"fr", "/home/maxime/piper/voices/fr_siwis.onnx", "/home/maxime/piper/voices/fr_siwis.onnx.json"},
-  {"nl", "/home/maxime/piper/voices/nl_nathalie.onnx", "/home/maxime/piper/voices/nl_nathalie.onnx.json"},
+  {"fr", "./voices/fr_siwis.onnx", "./voices/fr_siwis.onnx.json"},
+  {"nl", "./voices/nl_nathalie.onnx", "./voices/nl_nathalie.onnx.json"},
 };
 
 static const VoiceEntry* findVoiceEntry(const std::string& key) {
@@ -233,30 +233,52 @@ static void watchDir(const fs::path &dir, const std::function<void(const std::st
 }
 
 static void playTextNow(piper::PiperConfig& cfg, piper::Voice& voice, const std::string& text) {
-  const int rate = voice.synthesisConfig.sampleRate;   // ex: 22050
-  const int ch   = voice.synthesisConfig.channels;     // ex: 1
+  const int rate = voice.synthesisConfig.sampleRate;   // e.g., 22050
+  const int ch   = voice.synthesisConfig.channels;     // e.g., 1
+
+  // You can also tune ALSA buffering:
+  // -B = buffer time, -F = period time (in µs). Example: 200ms / 20ms
   std::string cmd = "aplay -q -f S16_LE -c " + std::to_string(ch) +
-                    " -r " + std::to_string(rate) + " -";
+                    " -r " + std::to_string(rate) +
+                    " -B 200000 -F 20000 -";
 
   FILE* pipe = popen(cmd.c_str(), "w");
   if (!pipe) { spdlog::error("popen aplay failed"); return; }
 
-  std::vector<int16_t> chunk;                 // buffer utilisé par textToAudio
+  // Disable stdio buffering: write() directly to the pipe
+  setvbuf(pipe, nullptr, _IONBF, 0);
+
+  // 1) Startup silence (~200 ms)
+  const int start_silence_ms = 200;
+  const size_t start_samples = (size_t)((start_silence_ms / 1000.0) * rate * ch);
+  std::vector<int16_t> zeros(start_samples, 0);
+  fwrite(zeros.data(), sizeof(int16_t), zeros.size(), pipe);
+
+  std::vector<int16_t> chunk;           // filled by piper::textToAudio
   piper::SynthesisResult res{};
 
-  // Le callback est appelé à chaque chunk : on COPIE le buffer (sinon il est vidé ensuite)
+  // 2) Callback: COPY the chunk then write the copy
   auto onChunk = [&]() {
     if (!chunk.empty()) {
-      // écrire le PCM en S16_LE vers aplay
-      size_t n = fwrite(chunk.data(), sizeof(int16_t), chunk.size(), pipe);
+      std::vector<int16_t> local(chunk.begin(), chunk.end());
+      size_t n = fwrite(local.data(), sizeof(int16_t), local.size(), pipe);
       (void)n;
-      // pas besoin de flush à chaque fois, aplay tamponne bien; si tu veux: fflush(pipe);
+      // No fflush: _IONBF and aplay read quickly; avoids the cost.
     }
   };
 
-  // Stream la synthèse
+  // 3) Stream TTS
   piper::textToAudio(cfg, voice, text, chunk, res, onChunk);
 
+  // 4) Ending silence (~100 ms) to avoid abrupt cut
+  const int end_silence_ms = 100;
+  const size_t end_samples = (size_t)((end_silence_ms / 1000.0) * rate * ch);
+  if (end_samples > 0) {
+    std::vector<int16_t> tail(end_samples, 0);
+    fwrite(tail.data(), sizeof(int16_t), tail.size(), pipe);
+  }
+
+  // Finish
   fflush(pipe);
   pclose(pipe);
 
