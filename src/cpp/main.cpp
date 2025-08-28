@@ -95,6 +95,11 @@ struct RunConfig {
   bool useCuda = false;
 };
 
+struct JobItem {
+  std::string voice;
+  std::string text;
+};
+
 void parseArgs(int argc, char *argv[], RunConfig &runConfig);
 void rawOutputProc(vector<int16_t> &sharedAudioBuffer, mutex &mutAudio,
   condition_variable &cvAudio, bool &audioReady,
@@ -107,18 +112,30 @@ struct VoiceEntry {
 };
 
 
-static bool parseJobJson(const fs::path &file, std::string &outVoice, std::string &outText) {
+static bool parseJobJson(const fs::path &file, std::vector<JobItem> &outJobs) {
   try {
     std::ifstream in(file);
-    
     if (!in.good()) return false;
 
-    nlohmann::json j; in >> j;
-    outText = j.at("text").get<std::string>();
+    nlohmann::json j; 
+    in >> j;
 
-    if (j.contains("voice")) outVoice = j["voice"].get<std::string>();
-    else outVoice = "fr"; // défaut
-    
+    auto parseOne = [](const nlohmann::json& x) -> JobItem {
+      JobItem it;
+      it.text  = x.at("text").get<std::string>();
+      it.voice = x.value("voice", std::string("fr"));  // default = "fr"
+      return it;
+    };
+
+    outJobs.clear();
+    if (j.is_array()) {
+      outJobs.reserve(j.size());
+      for (const auto& x : j) outJobs.push_back(parseOne(x));
+    } else if (j.is_object()) {
+      outJobs.push_back(parseOne(j));
+    } else {
+      return false;
+    }
     return true;
   } catch (...) {
     return false;
@@ -153,12 +170,13 @@ static piper::Voice& getOrLoadVoice(const std::string& key,
   }
 
   // 2) Build paths directly from key
-  fs::path onnxPath = key + ".onnx";
-  fs::path jsonPath = key + ".onnx.json";
+  fs::path onnxPath = "./voices/" + key + ".onnx";
+  fs::path jsonPath = "./voices/" + key + ".onnx.json";
 
   if (!fs::exists(onnxPath) || !fs::exists(jsonPath)) {
     spdlog::error("Missing files for [{}]: {} / {}", key, onnxPath.string(), jsonPath.string());
-    throw std::runtime_error("Voice files missing for: " + key);
+    onnxPath = "./voices/fr_siwis.onnx";
+    jsonPath = "./voices/fr_siwis.onnx.json";
   }
 
   // 3) Load
@@ -181,16 +199,15 @@ static piper::Voice& getOrLoadVoice(const std::string& key,
 }
 
 // Watcher: call onJob(voice, text) when a new job is added
-static void watchDir(const fs::path &dir, const std::function<void(const std::string&, const std::string&)> &onJob)
+static void watchDir(
+  const fs::path &dir,
+  const std::function<void(const std::string&, const std::string&)> &onJob)
 {
   int fd = inotify_init1(IN_NONBLOCK);
   if (fd < 0) throw std::runtime_error("inotify_init1 failed");
 
   int wd = inotify_add_watch(fd, dir.c_str(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE);
-  if (wd < 0) {
-    close(fd);
-    throw std::runtime_error("inotify_add_watch failed");
-  }
+  if (wd < 0) { close(fd); throw std::runtime_error("inotify_add_watch failed"); }
 
   spdlog::info(dir.c_str());
 
@@ -204,13 +221,17 @@ static void watchDir(const fs::path &dir, const std::function<void(const std::st
       if (ev->len > 0 && !(ev->mask & IN_ISDIR)) {
         std::string name(ev->name);
         if (name.size() >= 5 && name.substr(name.size()-5) == ".json" &&
-            (ev->mask & (IN_CLOSE_WRITE | IN_MOVED_TO))) {
+            (ev->mask & (IN_CLOSE_WRITE | IN_MOVED_TO)))
+        {
           fs::path job = dir / name;
-          std::string voice, text;
-          if (parseJobJson(job, voice, text)) {
-            onJob(voice, text);
+          std::vector<JobItem> items;
+          if (parseJobJson(job, items)) {
+            // we execute all items in the job
+            for (const auto& it : items) {
+              onJob(it.voice, it.text);
+            }
           }
-          std::error_code ec; fs::remove(job, ec); // remove the job file after processing
+          std::error_code ec; fs::remove(job, ec); // remove the job file
         }
       }
       i += sizeof(inotify_event) + ev->len;

@@ -27,10 +27,16 @@ Piper est un petit programme permettant de générer et de jouer de l’audio à
 Pour transformer du texte en voix, il faut créer un fichier JSON dans le dossier **`jobs/`** avec la structure suivante :
 
 ```json
-{
-  "text": "Le texte à prononcer",
-  "voice": "fr"
-}
+[
+    {
+        "text": "Le texte à prononcer",
+        "voice": "fr"
+    },
+    {
+        "text": "blablabla",
+        "voice": "nl"
+    }
+]
 ```
 
 * **text** : le contenu à lire
