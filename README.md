@@ -54,6 +54,14 @@ Pour ajouter une voix :
 
 ---
 
+## Paramètres
+
+```bash
+./piper --play --legth_scale 2
+```
+
+--length_scale: Speed of speaking (1 = normal, < 1 is faster, > 1 is slower)
+
 ## 📂 Organisation du projet
 
 * `piper` → exécutable principal
