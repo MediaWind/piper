@@ -57,10 +57,12 @@ Pour ajouter une voix :
 ## Paramètres
 
 ```bash
-./piper --play --legth_scale 2
+./piper --play --length_scale 2 --espeak_data /var/www/data/piper/espeak-ng-data --voices_dir /var/www/data/piper/voices
 ```
 
 --length_scale: Speed of speaking (1 = normal, < 1 is faster, > 1 is slower)
+--espeak_data: espeak_data direcotry
+--voices_dir: voices directory
 
 ## 📂 Organisation du projet
 
@@ -71,6 +73,24 @@ Pour ajouter une voix :
 * `main.cpp` → point d’entrée du programme et configuration des voix
 
 ---
+
+
+## Build for CMP4
+1. build
+
+```bash
+make docker
+```
+
+2. Unzip tar.gz
+
+```bash
+tar -xvzf dist/piper_armv7.tar.gz
+```
+
+3. Move file to right place
+a. put `piper` in /skeleton
+
 
 👉 Résumé :
 

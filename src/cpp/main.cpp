@@ -75,6 +75,9 @@ struct RunConfig {
   // Path to espeak-ng data directory (default is next to piper executable)
   optional<filesystem::path> eSpeakDataPath;
 
+  // Path to voices directory containing .onnx and .json files
+  optional<filesystem::path> voicesDir;
+
   // Path to libtashkeel ort model
   // https://github.com/mush42/libtashkeel/
   optional<filesystem::path> tashkeelModelPath;
@@ -170,8 +173,10 @@ static piper::Voice& getOrLoadVoice(const std::string& key,
   }
 
   // 2) Build paths directly from key
-  fs::path onnxPath = "./voices/" + key + ".onnx";
-  fs::path jsonPath = "./voices/" + key + ".onnx.json";
+
+  fs::path voicesDir = runConfig.voicesDir.value_or(fs::path("/var/www/data/piper/voices/"));
+  fs::path onnxPath = voicesDir / (key + ".onnx");
+  fs::path jsonPath = voicesDir / (key + ".onnx.json");
 
   if (!fs::exists(onnxPath) || !fs::exists(jsonPath)) {
     spdlog::error("Missing files for [{}]: {} / {}", key, onnxPath.string(), jsonPath.string());
@@ -359,8 +364,8 @@ int main(int argc, char *argv[]) {
     spdlog::info("Output directory: {}", runConfig.outputPath.value().string());
   }
 
-  fs::path watchPath = "./jobs";
-  fs::path outDir   = (runConfig.outputPath ? runConfig.outputPath.value() : fs::path("./out"));
+  fs::path watchPath = "/tmp/piper/jobs";
+  fs::path outDir   = (runConfig.outputPath ? runConfig.outputPath.value() : fs::path("/tmp/piper/out"));
   std::error_code mkec;
   fs::create_directories(watchPath, mkec);
   fs::create_directories(outDir, mkec);
@@ -475,6 +480,10 @@ void printUsage(char *argv[]) {
   cerr << "   --debug                       print DEBUG messages to the console"
        << endl;
   cerr << "   -q       --quiet              disable logging" << endl;
+  cerr << "  --play                     play audio using aplay (Linux only)"
+       << endl;
+  cerr << "  --voices_dir         DIR   directory containing voice .onnx and .json files"
+       << endl;
   cerr << endl;
 }
 
@@ -551,6 +560,9 @@ void parseArgs(int argc, char *argv[], RunConfig &runConfig) {
     } else if (arg == "--espeak_data" || arg == "--espeak-data") {
       ensureArg(argc, argv, i);
       runConfig.eSpeakDataPath = filesystem::path(argv[++i]);
+    } else if (arg == "--voices_dir" || arg == "--voices-dir") {
+      ensureArg(argc, argv, i);
+      runConfig.voicesDir = filesystem::path(argv[++i]);
     } else if (arg == "--tashkeel_model" || arg == "--tashkeel-model") {
       ensureArg(argc, argv, i);
       runConfig.tashkeelModelPath = filesystem::path(argv[++i]);
