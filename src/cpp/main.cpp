@@ -225,7 +225,7 @@ static void watchDir(
         {
           fs::path job = dir / name;
           std::vector<JobItem> items;
-          if (parseJobJson(job, items)) {
+          if (fs::exists(job) && parseJobJson(job, items)) {
             // we execute all items in the job
             for (const auto& it : items) {
               onJob(it.voice, it.text);
